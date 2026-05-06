@@ -42,7 +42,7 @@ def initialize_services():
         )
 
         # Initialize other services (Groq, etc.)
-        services['llm'] = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=groq_api_key)
+        services['llm'] = ChatGroq(model="llama-3.1-8b-instant", groq_api_key=groq_api_key)
         services['embeddings'] = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         
         # Initialize Gemini specifically for Vision (since Groq decommissioned theirs)

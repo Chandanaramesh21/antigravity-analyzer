@@ -193,7 +193,8 @@ class DocumentAnalyzerApp:
                             st.session_state.quiz.update({
                                 "quiz": quiz,
                                 "current_question": 0,
-                                "user_answers": []
+                                "user_answers": [],
+                                "submitted": False
                             })
                     except Exception as e:
                         st.error(str(e))
@@ -202,26 +203,25 @@ class DocumentAnalyzerApp:
             self._handle_quiz()
 
     def _handle_quiz(self):
-        current = st.session_state.quiz["current_question"]
-        total = len(st.session_state.quiz["quiz"])
-        
-        if current < total:
-            question = st.session_state.quiz["quiz"][current]
-            st.markdown(f"**Question {current+1}/{total}**")
-            selected = st.radio(question["question"], question["options"], index=None)
-            
-            col1, col2 = st.columns([1, 4])
-            with col1:
-                if st.button("Next ➡️", disabled=not selected):
-                    st.session_state.quiz["user_answers"].append(selected)
-                    st.session_state.quiz["current_question"] += 1
-                    st.rerun()
-            with col2:
-                if current > 0 and st.button("⬅️ Previous"):
-                    st.session_state.quiz["current_question"] -= 1
-                    st.rerun()
-        else:
+        if st.session_state.quiz.get("submitted", False):
             self._show_results()
+            return
+            
+        total = len(st.session_state.quiz["quiz"])
+        st.markdown(f"**Quiz: {total} Questions**")
+        
+        with st.form("quiz_form"):
+            for i, question in enumerate(st.session_state.quiz["quiz"]):
+                st.markdown(f"**Q{i+1}:** {question['question']}")
+                st.radio("Select your answer:", question["options"], index=None, key=f"q_{i}")
+                st.divider()
+                
+            submitted = st.form_submit_button("Submit Quiz")
+            if submitted:
+                # Store answers in state and mark as submitted
+                st.session_state.quiz["user_answers"] = [st.session_state[f"q_{i}"] for i in range(total)]
+                st.session_state.quiz["submitted"] = True
+                st.rerun()
 
     def _show_results(self):
         correct = sum(1 for ans, q in zip(st.session_state.quiz["user_answers"], 
@@ -230,13 +230,19 @@ class DocumentAnalyzerApp:
         st.success(f"Score: {correct}/{len(st.session_state.quiz['quiz'])}")
         st.progress(correct/len(st.session_state.quiz["quiz"]))
         
-        with st.expander("Review Answers"):
-            for i, (ans, q) in enumerate(zip(st.session_state.quiz["user_answers"], 
-                                           st.session_state.quiz["quiz"])):
-                st.markdown(f"**Q{i+1}:** {q['question']}")
-                st.markdown(f"✅ **Correct:** {q['options'][ord(q['answer'])-97]}")
-                st.markdown(f"💡 **Your answer:** {ans if ans else 'None'}")
-                st.divider()
+        st.markdown("### Review Answers")
+        for i, (ans, q) in enumerate(zip(st.session_state.quiz["user_answers"], 
+                                       st.session_state.quiz["quiz"])):
+            st.markdown(f"**Q{i+1}:** {q['question']}")
+            st.markdown(f"✅ **Correct:** {q['options'][ord(q['answer'])-97]}")
+            st.markdown(f"💡 **Your answer:** {ans if ans else 'None'}")
+            if "explanation" in q:
+                st.info(f"**Explanation:** {q['explanation']}")
+            st.divider()
+            
+        if st.button("Take Another Quiz"):
+            st.session_state.quiz = {"quiz": None, "current_question": 0, "user_answers": [], "submitted": False}
+            st.rerun()
 
 if __name__ == "__main__":
     if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):

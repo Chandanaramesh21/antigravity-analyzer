@@ -10,25 +10,17 @@ class QuizGenerator:
         )
         self.retry_delay = 5  # Seconds between retries
         self.max_retries = 3
-        self.model = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7)
+        self.model = ChatGroq(model="llama-3.1-8b-instant", temperature=0.7)
 
     def generate_quiz(self, pdf_text):
         """
         Generate a quiz from PDF text with error handling and retry logic.
-        
-        Args:
-            pdf_text (str): Text extracted from PDF documents.
-        
-        Returns:
-            list: List of structured quiz questions.
-        
-        Raises:
-            RuntimeError: If quiz generation fails after retries.
         """
         try:
             # Split text into manageable chunks
             chunks = self.text_splitter.split_text(pdf_text)
-            context = "\n".join(chunks[:3])  # Use first 3 chunks for context
+            # Use only the first chunk (10k chars) to avoid hitting Groq's free tier token limits
+            context = chunks[0] if chunks else pdf_text
 
             prompt = f"""Generate 5 MCQ questions from this context:
             {context}
@@ -38,7 +30,8 @@ class QuizGenerator:
               {{
                 "question": "question text here",
                 "options": ["A) option 1", "B) option 2", "C) option 3", "D) option 4"],
-                "answer": "a"
+                "answer": "a",
+                "explanation": "Explanation for why A is correct."
               }}
             ]
             Do not include any markdown formatting like ```json. Just the raw JSON array."""
@@ -60,44 +53,42 @@ class QuizGenerator:
     def parse_quiz(self, response_text):
         """
         Parse the model's response into structured quiz questions.
-        
-        Args:
-            response_text (str): Raw response text from the model.
-        
-        Returns:
-            list: List of structured quiz questions.
         """
         import json
         import re
         
         try:
-            # Clean up potential markdown formatting from the response
-            clean_text = re.sub(r'```json\s*', '', response_text)
-            clean_text = re.sub(r'```\s*$', '', clean_text).strip()
+            # Extract JSON array from anywhere in the text to handle conversational filler
+            start_idx = response_text.find('[')
+            end_idx = response_text.rfind(']')
             
-            questions = json.loads(clean_text)
+            if start_idx == -1 or end_idx == -1:
+                return []
+                
+            json_str = response_text[start_idx:end_idx+1]
+            questions = json.loads(json_str)
             
             # Ensure answer is just the lowercase letter
             for q in questions:
                 if 'answer' in q and isinstance(q['answer'], str):
-                    q['answer'] = q['answer'].lower().strip()[0]
+                    # Search for the first a, b, c, or d
+                    match = re.search(r'[a-d]', q['answer'].lower())
+                    if match:
+                        q['answer'] = match.group(0)
+                    else:
+                        q['answer'] = 'a' # Fallback
             
             return [q for q in questions if self._is_valid_question(q)][:5]
-        except json.JSONDecodeError:
+        except Exception as e:
+            print(f"Quiz parsing error: {e}")
             return []
 
     def _is_valid_question(self, question):
         """
         Validate the structure of a quiz question.
-        
-        Args:
-            question (dict): Quiz question to validate.
-        
-        Returns:
-            bool: True if the question is valid, False otherwise.
         """
         return (
-            len(question.get("options", [])) == 4 and 
-            question.get("answer") in ['a', 'b', 'c', 'd'] and 
+            len(question.get("options", [])) >= 2 and 
+            bool(question.get("answer")) and 
             bool(question.get("question"))
         )
